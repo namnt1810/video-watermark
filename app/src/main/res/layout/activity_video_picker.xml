@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<android.support.constraint.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FFFFFF">
+
+    <!-- Toolbar -->
+    <FrameLayout
+        android:id="@+id/toolbar"
+        android:layout_width="0dp"
+        android:layout_height="56dp"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <!--Cancel button-->
+        <TextView
+            android:id="@+id/back"
+            android:layout_width="wrap_content"
+            android:layout_height="56dp"
+            android:layout_gravity="start"
+            android:gravity="center"
+            android:minWidth="56dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:paddingEnd="16dp"
+            android:paddingStart="16dp"
+            android:text="Cancel"
+            android:textColor="#272727"
+            android:textSize="13sp"/>
+
+        <!-- Title View -->
+        <TextView
+            android:id="@+id/tv_toolbar_title"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:paddingEnd="8dp"
+            android:paddingLeft="8dp"
+            android:paddingRight="8dp"
+            android:paddingStart="8dp"
+            android:text="Picker"
+            android:textColor="#CC000000"
+            android:textSize="16sp"/>
+
+        <!-- Next button -->
+        <TextView
+            android:id="@+id/next"
+            android:layout_width="wrap_content"
+            android:layout_height="56dp"
+            android:layout_gravity="end"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:gravity="center"
+            android:paddingEnd="16dp"
+            android:paddingStart="16dp"
+            android:textColor="#ff4661"
+            android:minWidth="56dp"
+            android:textSize="13sp"
+            android:text="Next"/>
+    </FrameLayout>
+
+    <!-- Videos list -->
+    <android.support.v7.widget.RecyclerView
+        android:id="@+id/videos_list"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:layout_marginEnd="4dp"
+        android:layout_marginTop="8dp"
+        android:fadeScrollbars="false"
+        android:overScrollMode="never"
+        android:paddingEnd="4dp"
+        android:paddingStart="8dp"
+        android:scrollbarSize="4dp"
+        android:scrollbarStyle="outsideInset"
+        android:scrollbarThumbVertical="@drawable/video_picker_scrollbar_drawable"
+        android:scrollbars="vertical"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/toolbar"/>
+</android.support.constraint.ConstraintLayout>
