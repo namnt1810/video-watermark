@@ -31,9 +31,7 @@ public class DecoderWrapper {
 
     private static final String TAG = DecoderWrapper.class.getSimpleName();
 
-//    protected final DispatchQueue mQueue;
-
-    protected final Handler mQueue;
+    protected final DispatchQueue mQueue;
 
     private MediaExtractor mMediaExtractor;
 
@@ -56,11 +54,7 @@ public class DecoderWrapper {
 
     private ZMediaCodecCallback mMediaCodecCallback;
 
-//    public DecoderWrapper(DispatchQueue queue) {
-//        mQueue = queue;
-//    }
-
-    public DecoderWrapper(Handler queue) {
+    public DecoderWrapper(DispatchQueue queue) {
         mQueue = queue;
     }
 
@@ -96,33 +90,12 @@ public class DecoderWrapper {
         final String mimeType = trackFormat.getString(MediaFormat.KEY_MIME);
 
         mDecoder = MediaCodec.createDecoderByType(mimeType);
-            mMediaCodecCallback = Utils.hasLollipop()
-                    ? (new ZMediaCodeCallbackV21(mDecoder))
-                    : (new ZMediaCodecCallbackPreV21(mDecoder));
-//        mDecoder.setCallback(new MediaCodec.Callback() {
-//            @Override
-//            public void onInputBufferAvailable(@NonNull MediaCodec codec, int index) {
-//                Log.d(TAG, "onInputBufferAvailable");
-//                DecoderWrapper.this.onInputBufferAvailable(codec, index);
-//            }
-//
-//            @Override
-//            public void onOutputBufferAvailable(@NonNull MediaCodec codec, int index, @NonNull MediaCodec.BufferInfo info) {
-//                DecoderWrapper.this.onOutputBufferAvailable(codec, index, info);
-//            }
-//
-//            @Override
-//            public void onError(@NonNull MediaCodec codec, @NonNull MediaCodec.CodecException e) {
-//
-//            }
-//
-//            @Override
-//            public void onOutputFormatChanged(@NonNull MediaCodec codec, @NonNull MediaFormat format) {
-//
-//            }
-//        });
+        mMediaCodecCallback = Utils.hasLollipop()
+                ? (new ZMediaCodeCallbackV21(mDecoder))
+                : (new ZMediaCodecCallbackPreV21(mDecoder));
         mDecoder.configure(trackFormat, surface, null, 0);
         mDecoder.start();
+        mMediaCodecCallback.start();
     }
 
     private String getTag() {
@@ -133,7 +106,7 @@ public class DecoderWrapper {
     }
 
     private void onInputBufferAvailable(@NonNull final MediaCodec codec, final int index) {
-        mQueue.post(() -> {
+        mQueue.dispatch(() -> {
             if (codec != mDecoder) {
                 return;
             }
@@ -154,11 +127,15 @@ public class DecoderWrapper {
                 break;
             }
             tryQueueInputBuffer(mDecoder, index, 0, size, mMediaExtractor.getSampleTime(), mMediaExtractor.getSampleFlags());
+            boolean hasMoreData = mMediaExtractor.advance();
+            if (!hasMoreData) {
+                tryQueueInputBuffer(mDecoder, index, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+            }
         }
     }
 
     private void onOutputBufferAvailable(@NonNull final MediaCodec codec, final int index, @NonNull final MediaCodec.BufferInfo info) {
-        mQueue.post(() -> {
+        mQueue.dispatch(() -> {
             if (codec != mDecoder) {
                 return;
             }
@@ -177,6 +154,7 @@ public class DecoderWrapper {
             mMediaCodecCallback.stop();
         }
 
+        mDecoder.stop();
         releaseCodec();
 
         if (mMediaCodecCallback != null) {

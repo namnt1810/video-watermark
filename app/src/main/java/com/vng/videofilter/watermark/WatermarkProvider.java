@@ -10,4 +10,7 @@ import com.vng.videofilter.util.Provider;
  */
 
 public interface WatermarkProvider extends Provider<Integer> {
+    void setWidth(int width);
+
+    void setHeight(int height);
 }

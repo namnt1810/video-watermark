@@ -13,6 +13,7 @@ import android.view.View;
 import com.vng.videofilter.LocalVideoProperty;
 import com.vng.videofilter.R;
 import com.vng.videofilter.watermark.WatermarkGenerator;
+import com.vng.videofilter.watermark.WatermarkImageProvider;
 
 import java.util.List;
 
@@ -43,7 +44,12 @@ public class VideoPickerActivity extends AppCompatActivity implements VideoPicke
 
         initPresenter();
 
-        mWatermarkGenerator = WatermarkGenerator.with(null);
+        mWatermarkGenerator = WatermarkGenerator.with(new WatermarkImageProvider(107));
+    }
+
+    @Override
+    public void onBackPressed() {
+        super.onBackPressed();
     }
 
     @Override
