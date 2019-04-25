@@ -5,7 +5,6 @@ import android.media.MediaCodec;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.os.Build;
-import android.os.Handler;
 import android.support.annotation.NonNull;
 import android.text.TextUtils;
 import android.util.Log;
@@ -27,9 +26,9 @@ import java.util.Queue;
  * @since 27/08/2018
  */
 
-public class DecoderWrapper {
+public class ExtractDecoderWrapper {
 
-    private static final String TAG = DecoderWrapper.class.getSimpleName();
+    private static final String TAG = ExtractDecoderWrapper.class.getSimpleName();
 
     protected final DispatchQueue mQueue;
 
@@ -60,7 +59,11 @@ public class DecoderWrapper {
 
     private long mLastPts = 0;
 
-    public DecoderWrapper(DispatchQueue queue) {
+    private boolean mPublishToSurface = false;
+
+    private OutputCallback mOutputCallback;
+
+    public ExtractDecoderWrapper(DispatchQueue queue) {
         mQueue = queue;
     }
 
@@ -93,6 +96,8 @@ public class DecoderWrapper {
 
     private void createDecoder(MediaFormat trackFormat, Surface surface) throws IOException {
         final String mimeType = trackFormat.getString(MediaFormat.KEY_MIME);
+
+        mPublishToSurface = surface != null;
 
         mDecoder = MediaCodec.createDecoderByType(mimeType);
         Log.d(TAG, "create codec");
@@ -157,7 +162,12 @@ public class DecoderWrapper {
                 return;
             }
 
-            tryReleaseOutputBuffer(codec, index, true);
+            if (mPublishToSurface) {
+                tryReleaseOutputBuffer(codec, index, mPublishToSurface);
+            } else if (mOutputCallback != null) {
+                mOutputCallback.onOutputData(getOutputBuffer(index), info);
+            }
+
             Log.d(TAG, String.format("tryReleaseOutputBuffer(): pts = %d, flag = %d", info.presentationTimeUs, info.flags));
         });
     }
@@ -271,6 +281,10 @@ public class DecoderWrapper {
         }
     }
 
+    public void setOutputCallback(OutputCallback outputCallback) {
+        mOutputCallback = outputCallback;
+    }
+
     /**
      * {@link ZMediaCodecCallback}
      */
@@ -304,12 +318,12 @@ public class DecoderWrapper {
 
         @Override
         public void onInputBufferAvailable(@NonNull MediaCodec codec, int index) {
-            DecoderWrapper.this.onInputBufferAvailable(codec, index);
+            ExtractDecoderWrapper.this.onInputBufferAvailable(codec, index);
         }
 
         @Override
         public void onOutputBufferAvailable(@NonNull MediaCodec codec, int index, @NonNull MediaCodec.BufferInfo info) {
-            DecoderWrapper.this.onOutputBufferAvailable(codec, index, info);
+            ExtractDecoderWrapper.this.onOutputBufferAvailable(codec, index, info);
         }
 
         @Override
@@ -395,12 +409,12 @@ public class DecoderWrapper {
 
         @Override
         public void onInputBufferAvailable(@NonNull MediaCodec codec, int index) {
-            DecoderWrapper.this.onInputBufferAvailable(codec, index);
+            ExtractDecoderWrapper.this.onInputBufferAvailable(codec, index);
         }
 
         @Override
         public void onOutputBufferAvailable(@NonNull MediaCodec codec, int index, @NonNull MediaCodec.BufferInfo info) {
-            DecoderWrapper.this.onOutputBufferAvailable(codec, index, info);
+            ExtractDecoderWrapper.this.onOutputBufferAvailable(codec, index, info);
         }
 
         @Override
@@ -432,5 +446,9 @@ public class DecoderWrapper {
                 mOutputThread.interrupt();
             }
         }
+    }
+
+    public interface OutputCallback {
+        void onOutputData(ByteBuffer byteBuffer, MediaCodec.BufferInfo bufferInfo);
     }
 }

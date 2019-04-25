@@ -8,11 +8,14 @@ import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.GridLayoutManager;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.util.Log;
 import android.view.View;
 
 import com.vng.videofilter.LocalVideoProperty;
 import com.vng.videofilter.R;
 import com.vng.videofilter.watermark.WatermarkGenerator;
+import com.vng.videofilter.watermark.WatermarkGenerator2;
+import com.vng.videofilter.watermark.WatermarkGeneratorNew;
 import com.vng.videofilter.watermark.WatermarkImageProvider;
 
 import java.util.List;
@@ -33,7 +36,9 @@ public class VideoPickerActivity extends AppCompatActivity implements VideoPicke
 
     private LocalVideoProperty mCurrentSelectedVideo;
 
-    private WatermarkGenerator mWatermarkGenerator;
+//    private WatermarkGenerator mWatermarkGenerator;
+//    private WatermarkGeneratorNew mWatermarkGenerator;
+    private WatermarkGenerator2 mWatermarkGenerator;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -44,7 +49,11 @@ public class VideoPickerActivity extends AppCompatActivity implements VideoPicke
 
         initPresenter();
 
-        mWatermarkGenerator = WatermarkGenerator.with(new WatermarkImageProvider(107));
+//        mWatermarkGenerator = WatermarkGenerator.with(new WatermarkImageProvider(107));
+//        mWatermarkGenerator = new WatermarkGeneratorNew();
+        mWatermarkGenerator = new WatermarkGenerator2();
+
+        Log.d(this.getClass().getSimpleName(), "thread: " + Thread.currentThread().getId());
     }
 
     @Override
@@ -65,8 +74,7 @@ public class VideoPickerActivity extends AppCompatActivity implements VideoPicke
 
     public void onNextClick() {
         if (mCurrentSelectedVideo != null) {
-            mWatermarkGenerator.setSource(Uri.parse(mCurrentSelectedVideo.getPath()));
-            mWatermarkGenerator.generate();
+            mWatermarkGenerator.generate(107, Uri.parse(mCurrentSelectedVideo.getPath()));
         }
     }
 

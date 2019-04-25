@@ -7,8 +7,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.view.Surface;
 
+import com.vng.videofilter.codec.MuxerWrapper2;
 import com.vng.videofilter.codec.ZBaseMediaEncoder;
-import com.vng.videofilter.util.DispatchQueue;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -20,10 +20,10 @@ import java.nio.ByteBuffer;
  * @since 27/07/2018
  */
 
-public class WatermarkVideoEncoder extends ZBaseMediaEncoder {
+public class VideoEncodeMuxWrapper extends ZBaseMediaEncoder {
 
     private static final String VIDEO_FORMAT = MediaFormat.MIMETYPE_VIDEO_AVC;
-    private DispatchQueue mDispatchQueue;
+    private MuxerWrapper2 mMuxer;
     private Surface surface;
     private int mWidth;
     private int mHeight;
@@ -31,11 +31,10 @@ public class WatermarkVideoEncoder extends ZBaseMediaEncoder {
     private int mProfile;
     private int mFps;
     private int mIFrameInterval;
-    private EncoderCallback mCallback;
 
-    public WatermarkVideoEncoder(DispatchQueue dispatchQueue, int width, int height, int bps, int profile, int fps, int keyFrameInterval) {
+    public VideoEncodeMuxWrapper(MuxerWrapper2 muxer, int width, int height, int bps, int profile, int fps, int keyFrameInterval) {
         super("VideoEncoder");
-        mDispatchQueue = dispatchQueue;
+        mMuxer = muxer;
         mWidth = width;
         mHeight = height;
         mBps = bps;
@@ -60,9 +59,9 @@ public class WatermarkVideoEncoder extends ZBaseMediaEncoder {
         }
     }
 
-    public WatermarkVideoEncoder(DispatchQueue dispatchQueue, MediaFormat format) {
+    public VideoEncodeMuxWrapper(MuxerWrapper2 muxer, MediaFormat format) {
         super("VideoEncoder");
-        mDispatchQueue = dispatchQueue;
+        mMuxer = muxer;
         try {
             encoder = MediaCodec.createEncoderByType(VIDEO_FORMAT);
             encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
@@ -110,15 +109,11 @@ public class WatermarkVideoEncoder extends ZBaseMediaEncoder {
     }
 
     protected void onOutputFormatChanged(MediaFormat outputFormat) {
-        if (mDispatchQueue != null && mCallback != null) {
-            mDispatchQueue.dispatch(() -> mCallback.onOutputFormatChanged(outputFormat));
-        }
+        mMuxer.addVideoTrack(outputFormat);
     }
 
     protected void onOutputData(ByteBuffer realData, MediaCodec.BufferInfo bufferInfo) {
-        if (mDispatchQueue != null && mCallback != null) {
-            mDispatchQueue.dispatch(() -> mCallback.onOutputData(realData, bufferInfo));
-        }
+        mMuxer.writeVideoData(realData, bufferInfo);
     }
 
     public boolean setBitrate(int bps) {
@@ -130,10 +125,6 @@ public class WatermarkVideoEncoder extends ZBaseMediaEncoder {
         } else {
             return false;
         }
-    }
-
-    public void setCallback(EncoderCallback callback) {
-        mCallback = callback;
     }
 
     public Surface getInputSurface() {

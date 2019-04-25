@@ -7,6 +7,7 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.Process;
 import android.util.Log;
+import android.util.SparseIntArray;
 
 import com.vng.videofilter.util.DispatchQueue;
 
@@ -19,7 +20,7 @@ import java.nio.ByteBuffer;
  * @since 7/26/2018
  */
 public class MuxerWrapper {
-    public static final boolean VERBOSE = false;
+    public static final boolean VERBOSE = true;
 
     public static final String TAG = MuxerWrapper.class.getSimpleName();
 
@@ -27,14 +28,11 @@ public class MuxerWrapper {
 
     private final DispatchQueue mDispatchQueue;
 
-    private int mVideoTrack = -1;
-    private int mAudioTrack = -1;
-
-    private int mTracksAwaitCount = 0;
+    private final SparseIntArray mIndicesMap = new SparseIntArray();
 
     private boolean mIsMuxerStarted = false;
 
-    public MuxerWrapper(String filePath, MuxerConfiguration configuration) {
+    public MuxerWrapper(String filePath) {
         try {
             mMuxer = new MediaMuxer(filePath,
                     MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
@@ -42,29 +40,23 @@ public class MuxerWrapper {
             e.printStackTrace();
         }
         mDispatchQueue = new DispatchQueue(TAG, Process.THREAD_PRIORITY_BACKGROUND, new MuxerCallback(this));
-        mDispatchQueue.dispatch(mDispatchQueue.obtain(MuxerCallback.MSG_CONFIGURE, configuration));
-    }
-
-    public void addVideoTrack(MediaFormat format) {
-        mDispatchQueue.dispatch(mDispatchQueue.obtain(MuxerCallback.MSG_ADD_VIDEO_TRACK, 0, 0, format));
-    }
-
-    public void addAudioTrack(MediaFormat format) {
-        mDispatchQueue.dispatch(mDispatchQueue.obtain(MuxerCallback.MSG_ADD_AUDIO_TRACK, 0, 0, format));
     }
 
     public void start() {
         mDispatchQueue.dispatch(mDispatchQueue.obtain(MuxerCallback.MSG_START_MUXER));
     }
 
-    public void writeVideoData(ByteBuffer realData, MediaCodec.BufferInfo bufferInfo) {
-        Object[] data = {realData, bufferInfo};
-        mDispatchQueue.dispatch(mDispatchQueue.obtain(MuxerCallback.MSG_WRITE_VIDEO_DATA, 0, 0, data));
+    public void addTrack(int sourceTrackIndex, MediaFormat format) {
+        mDispatchQueue.dispatch(mDispatchQueue.obtain(MuxerCallback.MSG_ADD_TRACK, sourceTrackIndex, 0, format));
     }
 
-    public void writeAudioData(ByteBuffer realData, MediaCodec.BufferInfo bufferInfo) {
+    public void setOrientationHint(int degree) {
+        mDispatchQueue.dispatch(mDispatchQueue.obtain(MuxerCallback.MSG_SET_ORIENTATION_HINT, degree));
+    }
+
+    public void writeSampleData(int sourceTrackIndex, ByteBuffer realData, MediaCodec.BufferInfo bufferInfo) {
         Object[] data = {realData, bufferInfo};
-        mDispatchQueue.dispatch(mDispatchQueue.obtain(MuxerCallback.MSG_WRITE_AUDIO_DATA, 0, 0, data));
+        mDispatchQueue.dispatch(mDispatchQueue.obtain(MuxerCallback.MSG_WRITE_SAMPLE_DATA, sourceTrackIndex, 0, data));
     }
 
     public void releaseMuxer() {
@@ -75,59 +67,29 @@ public class MuxerWrapper {
         return mIsMuxerStarted;
     }
 
-    private void configureInternal(MuxerConfiguration configuration) {
-        if (configuration.hasAudio()) {
-            mTracksAwaitCount++;
-        }
-
-        if (configuration.hasVideo()) {
-            mTracksAwaitCount++;
-        }
-    }
-
-    private void addVideoTrackInternal(MediaFormat format) {
-        if (VERBOSE) Log.d(TAG, "addVideoTrackInternal()");
-        if (mMuxer != null) {
-            mVideoTrack = mMuxer.addTrack(format);
-            --mTracksAwaitCount;
-            startInternal();
-        }
-    }
-
-    private void addAudioTrackInternal(MediaFormat format) {
-        if (VERBOSE) Log.d(TAG, "addAudioTrackInternal()");
-        if (mMuxer != null) {
-            mAudioTrack = mMuxer.addTrack(format);
-            --mTracksAwaitCount;
-            startInternal();
-        }
-    }
-
     private void startInternal() {
         if (VERBOSE) Log.d(TAG, "startInternal()");
-        if (mMuxer != null && isMuxerReady()) {
+        if (mMuxer != null) {
             mMuxer.start();
             mIsMuxerStarted = true;
         }
     }
 
-    private void writeVideoDataInternal(ByteBuffer realData, MediaCodec.BufferInfo bufferInfo) {
-//        if (VERBOSE)  Log.d(TAG, "writeVideoDataInternal()");
-        if (mMuxer != null && mVideoTrack != -1) {
-            if (!mIsMuxerStarted) {
-                mMuxer.start();
-            }
-            mMuxer.writeSampleData(mVideoTrack, realData, bufferInfo);
-        }
+    private void addTrackInternal(int sourceTrackIndex, MediaFormat format) {
+        if (VERBOSE) Log.d(TAG, "addTrackInternal(), format: " + format.toString());
+        int destTrackIndex = mMuxer.addTrack(format);
+        mIndicesMap.put(sourceTrackIndex, destTrackIndex);
     }
 
-    private void writeAudioDataInternal(ByteBuffer realData, MediaCodec.BufferInfo bufferInfo) {
-//        if (VERBOSE)  Log.d(TAG, "writeAudioDataInternal()");
-        if (mMuxer != null && mAudioTrack != -1) {
-            if (!mIsMuxerStarted) {
+    private void writeSampleDataInternal(int sourceTrackIndex, ByteBuffer byteBuffer, MediaCodec.BufferInfo bufferInfo) {
+        if (VERBOSE) Log.d(TAG, "writeSampleDataInternal()");
+        int destTrackIndex = mIndicesMap.get(sourceTrackIndex, -1);
+        if (destTrackIndex > -1) {
+            if (!isMuxerStarted()) {
                 mMuxer.start();
+                mIsMuxerStarted = true;
             }
-            mMuxer.writeSampleData(mAudioTrack, realData, bufferInfo);
+            mMuxer.writeSampleData(destTrackIndex, byteBuffer, bufferInfo);
         }
     }
 
@@ -146,8 +108,10 @@ public class MuxerWrapper {
         mDispatchQueue.quit();
     }
 
-    private boolean isMuxerReady() {
-        return mTracksAwaitCount <= 0;
+    private void setOrientationHintInternal(int degree) {
+        if (!isMuxerStarted()) {
+            mMuxer.setOrientationHint(degree);
+        }
     }
 
     /**
@@ -155,19 +119,17 @@ public class MuxerWrapper {
      */
     private static class MuxerCallback implements Handler.Callback {
 
-        public static final int MSG_CONFIGURE = 0;
+        private static final int MSG_BASE = 0;
 
-        public static final int MSG_START_MUXER = 1;
+        public static final int MSG_START_MUXER = MSG_BASE + 2;
 
-        public static final int MSG_RELEASE_MUXER = 2;
+        public static final int MSG_RELEASE_MUXER = MSG_BASE + 3;
 
-        public static final int MSG_ADD_AUDIO_TRACK = 3;
+        public static final int MSG_ADD_TRACK = MSG_BASE + 4;
 
-        public static final int MSG_ADD_VIDEO_TRACK = 4;
+        public static final int MSG_WRITE_SAMPLE_DATA = MSG_BASE + 5;
 
-        public static final int MSG_WRITE_AUDIO_DATA = 5;
-
-        public static final int MSG_WRITE_VIDEO_DATA = 6;
+        public static final int MSG_SET_ORIENTATION_HINT = MSG_BASE + 6;
 
         private final WeakReference<MuxerWrapper> mRef;
 
@@ -184,10 +146,6 @@ public class MuxerWrapper {
             }
 
             switch (message.what) {
-                case MSG_CONFIGURE:
-                    muxerWrapper.configureInternal(((MuxerConfiguration) message.obj));
-                    return true;
-
                 case MSG_START_MUXER:
                     muxerWrapper.startInternal();
                     return true;
@@ -196,53 +154,21 @@ public class MuxerWrapper {
                     muxerWrapper.releaseMuxerInternal();
                     return true;
 
-                case MSG_ADD_AUDIO_TRACK:
-                    muxerWrapper.addAudioTrackInternal((MediaFormat) message.obj);
+                case MSG_ADD_TRACK:
+                    muxerWrapper.addTrackInternal(message.arg1, ((MediaFormat) message.obj));
                     return true;
 
-                case MSG_ADD_VIDEO_TRACK:
-                    muxerWrapper.addVideoTrackInternal((MediaFormat) message.obj);
-                    return true;
-
-                case MSG_WRITE_AUDIO_DATA:
-                    final Object[] audioData = (Object[]) message.obj;
-                    muxerWrapper.writeAudioDataInternal(((ByteBuffer) audioData[0]), ((MediaCodec.BufferInfo) audioData[1]));
-                    return true;
-
-                case MSG_WRITE_VIDEO_DATA:
+                case MSG_WRITE_SAMPLE_DATA:
                     final Object[] videoData = (Object[]) message.obj;
-                    muxerWrapper.writeVideoDataInternal(((ByteBuffer) videoData[0]), ((MediaCodec.BufferInfo) videoData[1]));
+                    muxerWrapper.writeSampleDataInternal(message.arg1, ((ByteBuffer) videoData[0]), ((MediaCodec.BufferInfo) videoData[1]));
+                    return true;
+
+                case MSG_SET_ORIENTATION_HINT:
+                    muxerWrapper.setOrientationHintInternal(message.arg1);
                     return true;
             }
 
             return false;
-        }
-    }
-
-    public static class MuxerConfiguration {
-        private boolean mHasVideo = false;
-
-        private boolean mHasAudio = false;
-
-        public MuxerConfiguration() {
-        }
-
-        public MuxerConfiguration setHasVideo(boolean hasVideo) {
-            mHasVideo = hasVideo;
-            return this;
-        }
-
-        public MuxerConfiguration setHasAudio(boolean hasAudio) {
-            mHasAudio = hasAudio;
-            return this;
-        }
-
-        public boolean hasAudio() {
-            return mHasAudio;
-        }
-
-        public boolean hasVideo() {
-            return mHasVideo;
         }
     }
 }

@@ -87,7 +87,7 @@ public class WatermarkCodecWrapper implements SurfaceTexture.OnFrameAvailableLis
 
         mDecoder = new DecoderWrapper(queue);
         try {
-            mDecoder.configure(extractor, mInputSurface);
+            mDecoder.configure(extractor, null, mInputSurface);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -104,13 +104,13 @@ public class WatermarkCodecWrapper implements SurfaceTexture.OnFrameAvailableLis
     private void createEncoder(MediaFormat format) {
         ensureValidFormat(format);
 
-        mEncoder = new WatermarkVideoEncoder(mQueue,
-                format.getInteger(MediaFormat.KEY_WIDTH),
-                format.getInteger(MediaFormat.KEY_HEIGHT),
-                format.getInteger(MediaFormat.KEY_BIT_RATE),
-                format.getInteger(MediaFormat.KEY_PROFILE),
-                format.getInteger(MediaFormat.KEY_FRAME_RATE),
-                format.getInteger(MediaFormat.KEY_I_FRAME_INTERVAL));
+//        mEncoder = new WatermarkVideoEncoder(mQueue,
+//                format.getInteger(MediaFormat.KEY_WIDTH),
+//                format.getInteger(MediaFormat.KEY_HEIGHT),
+//                format.getInteger(MediaFormat.KEY_BIT_RATE),
+//                format.getInteger(MediaFormat.KEY_PROFILE),
+//                format.getInteger(MediaFormat.KEY_FRAME_RATE),
+//                format.getInteger(MediaFormat.KEY_I_FRAME_INTERVAL));
 
         mEncoder.setCallback(this);
     }
