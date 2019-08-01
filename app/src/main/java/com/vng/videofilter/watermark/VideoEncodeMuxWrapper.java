@@ -5,6 +5,7 @@ import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.Surface;
 
 import com.vng.videofilter.codec.MuxerWrapper2;
@@ -21,6 +22,8 @@ import java.nio.ByteBuffer;
  */
 
 public class VideoEncodeMuxWrapper extends ZBaseMediaEncoder {
+
+    private static final String TAG = VideoEncodeMuxWrapper.class.getSimpleName();
 
     private static final String VIDEO_FORMAT = MediaFormat.MIMETYPE_VIDEO_AVC;
     private MuxerWrapper2 mMuxer;
@@ -109,11 +112,16 @@ public class VideoEncodeMuxWrapper extends ZBaseMediaEncoder {
     }
 
     protected void onOutputFormatChanged(MediaFormat outputFormat) {
+        Log.d(TAG, "onOutputFormatChanged");
         mMuxer.addVideoTrack(outputFormat);
     }
 
     protected void onOutputData(ByteBuffer realData, MediaCodec.BufferInfo bufferInfo) {
+        Log.d(TAG, String.format("onOutputData, pts = %d, flag = %d", bufferInfo.presentationTimeUs, bufferInfo.flags));
         mMuxer.writeVideoData(realData, bufferInfo);
+        if ((bufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+            mMuxer.releaseMuxer();
+        }
     }
 
     public boolean setBitrate(int bps) {

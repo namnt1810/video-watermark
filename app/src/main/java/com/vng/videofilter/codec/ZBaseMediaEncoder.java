@@ -93,4 +93,10 @@ public abstract class ZBaseMediaEncoder extends ZQuitJoinThread {
             }
         }
     }
+
+    public void signalEndOfInputStream() {
+        if (encoder != null) {
+            encoder.signalEndOfInputStream();
+        }
+    }
 }

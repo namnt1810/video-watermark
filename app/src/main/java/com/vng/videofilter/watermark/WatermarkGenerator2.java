@@ -3,7 +3,6 @@ package com.vng.videofilter.watermark;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.SurfaceTexture;
-import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
@@ -11,6 +10,7 @@ import android.media.MediaMetadataRetriever;
 import android.net.Uri;
 import android.os.Environment;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Message;
 import android.os.Process;
 import android.util.Log;
@@ -20,7 +20,9 @@ import com.vng.videofilter.App;
 import com.vng.videofilter.codec.MuxerWrapper2;
 import com.vng.videofilter.gles.AddBlendProgram;
 import com.vng.videofilter.gles.EglCore;
+import com.vng.videofilter.gles.FullFrameRect;
 import com.vng.videofilter.gles.GlUtil;
+import com.vng.videofilter.gles.Texture2dProgram;
 import com.vng.videofilter.gles.TextureProgram;
 import com.vng.videofilter.gles.WindowSurface;
 import com.vng.videofilter.util.DispatchQueue;
@@ -28,26 +30,23 @@ import com.vng.videofilter.util.DispatchQueue;
 import java.io.File;
 import java.io.IOException;
 import java.lang.ref.WeakReference;
-import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
 
 import static android.opengl.GLES20.GL_COLOR_BUFFER_BIT;
-import static android.opengl.GLES20.GL_FRAMEBUFFER;
-import static android.opengl.GLES20.GL_TEXTURE0;
 import static android.opengl.GLES20.GL_TEXTURE1;
 import static android.opengl.GLES20.GL_TEXTURE2;
 import static android.opengl.GLES20.GL_TEXTURE3;
-import static android.opengl.GLES20.glBindFramebuffer;
 import static android.opengl.GLES20.glClear;
 import static android.opengl.GLES20.glClearColor;
 import static android.opengl.GLES20.glViewport;
-import static com.vng.videofilter.gles.TextureProgram.TEXTURE_2D;
 import static com.vng.videofilter.util.Utils.isAudioFormat;
 import static com.vng.videofilter.util.Utils.isVideoFormat;
 
-public class WatermarkGenerator2 implements SurfaceTexture.OnFrameAvailableListener {
+public class WatermarkGenerator2 implements SurfaceTexture.OnFrameAvailableListener,
+        ExtractDecoderWrapper.DecoderCallback {
     private static final String TAG = WatermarkGeneratorNew.class.getSimpleName();
 
     private static final String YES = "yes";
@@ -122,38 +121,64 @@ public class WatermarkGenerator2 implements SurfaceTexture.OnFrameAvailableListe
 
     private void execute() {
         if (mVideoTrackIndex != -1) {
-            Thread videoThread = new Thread(() -> {
+            final HandlerThread videoThread = new HandlerThread("video_decoder", Process.THREAD_PRIORITY_BACKGROUND);
+//            Thread videoThread = new Thread(() -> {
+//                try {
+//                    MediaFormat videoInputFormat = mVideoExtractor.getTrackFormat(mVideoTrackIndex);
+//                    mVideoDecoder.configure(mVideoExtractor, videoInputFormat, mInputSurface);
+//                } catch (IOException e) {
+//                    e.printStackTrace();
+//                }
+//            });
+
+            videoThread.start();
+            final CountDownLatch countDownLatch = new CountDownLatch(1);
+            final Handler handler = new Handler(videoThread.getLooper());
+            handler.post(() -> {
                 try {
                     MediaFormat videoInputFormat = mVideoExtractor.getTrackFormat(mVideoTrackIndex);
-                    mVideoDecoder.configure(mVideoExtractor, videoInputFormat, mInputSurface);
+                    mVideoDecoder.configure(mVideoExtractor, videoInputFormat, mInputSurface, this);
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
+                countDownLatch.countDown();
             });
 
-            videoThread.start();
-
             try {
-                videoThread.join();
+                countDownLatch.await();
+                mVideoEncoder.start();
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
         }
 
         if (mAudioTrackIndex != -1) {
-            Thread audioThread = new Thread(() -> {
+            final HandlerThread audioThread = new HandlerThread("audio_decoder", Process.THREAD_PRIORITY_BACKGROUND);
+//            Thread audioThread = new Thread(() -> {
+//                try {
+//                    MediaFormat audioInputFormat = mAudioExtractor.getTrackFormat(mAudioTrackIndex);
+//                    mAudioDecoder.configure(mAudioExtractor, audioInputFormat, null);
+//                } catch (IOException e) {
+//                    e.printStackTrace();
+//                }
+//            });
+
+            audioThread.start();
+            final CountDownLatch countDownLatch = new CountDownLatch(1);
+            final Handler handler = new Handler(audioThread.getLooper());
+            handler.post(() -> {
                 try {
                     MediaFormat audioInputFormat = mAudioExtractor.getTrackFormat(mAudioTrackIndex);
-                    mAudioDecoder.configure(mAudioExtractor, audioInputFormat, null);
+                    mAudioDecoder.configure(mAudioExtractor, audioInputFormat, null, null);
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
+                countDownLatch.countDown();
             });
 
-            audioThread.start();
-
             try {
-                audioThread.join();
+                countDownLatch.await();
+                mAudioEncoder.start();
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
@@ -344,17 +369,35 @@ public class WatermarkGenerator2 implements SurfaceTexture.OnFrameAvailableListe
         mOutputFilePath = Environment.getExternalStorageDirectory().getPath() + "/360Live/watermark_" + sdf.format(new Date()) + ".mp4";
     }
 
+    private float[] transformMat = new float[16];
+
     @Override
     public void onFrameAvailable(SurfaceTexture surfaceTexture) {
 //        mVideoDecoder.markExecuting();
         long pts = surfaceTexture.getTimestamp();
         Log.d(TAG, "onFrameAvailable(), pts = " + pts / 1000);
         surfaceTexture.updateTexImage();
-        mVideoTexture.draw();
+        surfaceTexture.getTransformMatrix(transformMat);
+        mVideoTexture.draw(transformMat);
 //        mWatermarkTexture.draw();
 //        mOutputTexture.draw();
         mOutputSurface.setPresentationTime(pts);
         mOutputSurface.swapBuffers();
+        try {
+            Log.d(TAG, "sleep");
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        Log.d(TAG, String.format("onFrameAvailable(), done render frame, pts = %d", pts / 1000));
+        mVideoDecoder.advance();
+    }
+
+    @Override
+    public void onDecodeDone() {
+        mQueue.dispatch(() -> {
+            mVideoEncoder.signalEndOfInputStream();
+        });
     }
 
     /**
@@ -458,7 +501,8 @@ public class WatermarkGenerator2 implements SurfaceTexture.OnFrameAvailableListe
                 1.0f, 1.0f, 1.0f, 0.0f
         };
 
-        private TextureProgram mTextureProgram;
+        //        private TextureProgram mTextureProgram;
+        private FullFrameRect mFullFrameRect;
 
         private Context mContext;
 
@@ -477,17 +521,19 @@ public class WatermarkGenerator2 implements SurfaceTexture.OnFrameAvailableListe
             mWidth = width;
             mHeight = height;
 
-            mTextureProgram = new TextureProgram(mContext, TEXTURE_2D, TEX_VERTICES, INDICES);
-            mTextureProgram.setTextureName(GL_TEXTURE0);
-            mTextureProgram.setTextureNameId(0);
+//            mTextureProgram = new TextureProgram(mContext, TEXTURE_2D, TEX_VERTICES, INDICES);
+//            mTextureProgram.setTextureName(GL_TEXTURE0);
+//            mTextureProgram.setTextureNameId(0);
+
+            mFullFrameRect = new FullFrameRect(new Texture2dProgram(Texture2dProgram.ProgramType.TEXTURE_EXT));
         }
 
-        public void draw() {
-            glClearColor(0f, 0f, 0f, 1f);
-            glClear(GL_COLOR_BUFFER_BIT);
-            glViewport(0, 0, mWidth, mHeight);
-            mTextureProgram.draw(mVideoTextureId);
-            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        public void draw(float[] transform) {
+//            glClearColor(0f, 0f, 0f, 1f);
+//            glClear(GL_COLOR_BUFFER_BIT);
+//            glViewport(0, 0, mWidth, mHeight);
+            mFullFrameRect.drawFrame(mVideoTextureId, transform);
+//            glBindFramebuffer(GL_FRAMEBUFFER, 0);
         }
     }
 

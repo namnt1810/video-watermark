@@ -10,6 +10,7 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.view.Surface;
 
+import com.vng.videofilter.codec.ZBaseMediaEncoder;
 import com.vng.videofilter.util.DispatchQueue;
 import com.vng.videofilter.util.Utils;
 
@@ -63,16 +64,21 @@ public class ExtractDecoderWrapper {
 
     private OutputCallback mOutputCallback;
 
+    private DecoderCallback mDecoderCallback;
+
+    private final Object mSyncLock = new Object();
+
     public ExtractDecoderWrapper(DispatchQueue queue) {
         mQueue = queue;
     }
 
-    public void configure(MediaExtractor extractor, MediaFormat format, Surface surface) throws IOException {
+    public void configure(MediaExtractor extractor, MediaFormat format, Surface surface, DecoderCallback decoderCallback) throws IOException {
         if (extractor == null) {
             return;
         }
 
         mMediaExtractor = extractor;
+        mDecoderCallback = decoderCallback;
 
         createDecoder(format, surface);
     }
@@ -82,8 +88,11 @@ public class ExtractDecoderWrapper {
     }
 
     public void advance() {
-        mIsExecuting = false;
-        execute();
+//        mIsExecuting = false;
+//        execute();
+        synchronized (mSyncLock) {
+            mSyncLock.notifyAll();
+        }
     }
 
     public boolean hasReachEOS() {
@@ -119,16 +128,16 @@ public class ExtractDecoderWrapper {
     }
 
     private void onInputBufferAvailable(@NonNull final MediaCodec codec, final int index) {
-        Log.d(TAG, "onInputBufferAvailable");
-        mQueue.dispatch(() -> {
-            if (codec != mDecoder) {
-                return;
-            }
-            mInputBufferIndices.add(index);
-            if (!mIsExecuting && !mHasReachEOS) {
-                execute();
-            }
-        });
+        Log.d(TAG, "onInputBufferAvailable, thread = " + Thread.currentThread().getName());
+//        mQueue.dispatch(() -> {
+        if (codec != mDecoder) {
+            return;
+        }
+        mInputBufferIndices.add(index);
+        if (!mIsExecuting && !mHasReachEOS) {
+            execute();
+        }
+//        });
     }
 
     public void execute() {
@@ -140,36 +149,61 @@ public class ExtractDecoderWrapper {
             index = mInputBufferIndices.poll();
             buffer = getInputBuffer(index);
             int size = mMediaExtractor.readSampleData(buffer, 0);
-            if (size == -1) {
-                Log.d(TAG, "reach OES");
-                if (mHasReachEOS) {
-                    return;
-                }
-                tryQueueInputBuffer(mDecoder, index, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-                mHasReachEOS = true;
-            } else {
+
+            if (size >= 0) {
                 tryQueueInputBuffer(mDecoder, index, 0, size, sampleTime, mMediaExtractor.getSampleFlags());
-                mLastPts = sampleTime;
-                mMediaExtractor.advance();
             }
+            mHasReachEOS = !mMediaExtractor.advance();
+            if (mHasReachEOS) {
+                Log.d(TAG, "reach OES");
+                mLastPts = sampleTime;
+//                tryQueueInputBuffer(mDecoder, index, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+            }
+
+//            if (size < 0) {
+//                Log.d(TAG, "reach OES");
+//                if (mHasReachEOS) {
+//                    return;
+//                }
+//                tryQueueInputBuffer(mDecoder, index, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+//                mHasReachEOS = true;
+//            } else {
+//                tryQueueInputBuffer(mDecoder, index, 0, size, sampleTime, mMediaExtractor.getSampleFlags());
+//                mLastPts = sampleTime;
+//                mMediaExtractor.advance();
+//            }
         }
     }
 
     private void onOutputBufferAvailable(@NonNull final MediaCodec codec, final int index, @NonNull final MediaCodec.BufferInfo info) {
-        Log.d(TAG, "onOutputBufferAvailable");
-        mQueue.dispatch(() -> {
-            if (codec != mDecoder) {
-                return;
-            }
+//        Log.d(TAG, String.format("onOutputBufferAvailable, thread = %s, pts = %d, flag = %d", Thread.currentThread().getName(), info.presentationTimeUs, info.flags));
+//        mQueue.dispatch(() -> {
+        if (codec != mDecoder) {
+            return;
+        }
 
-            if (mPublishToSurface) {
-                tryReleaseOutputBuffer(codec, index, mPublishToSurface);
-            } else if (mOutputCallback != null) {
-                mOutputCallback.onOutputData(getOutputBuffer(index), info);
-            }
+        if (mPublishToSurface) {
+            tryReleaseOutputBuffer(codec, index, mPublishToSurface);
+        } else if (mOutputCallback != null) {
+            mOutputCallback.onOutputData(getOutputBuffer(index), info);
+        }
 
-            Log.d(TAG, String.format("tryReleaseOutputBuffer(): pts = %d, flag = %d", info.presentationTimeUs, info.flags));
-        });
+        Log.d(TAG, String.format("onOutputBufferAvailable, thread = %s, pts = %d, flag = %d", Thread.currentThread().getName(), info.presentationTimeUs, info.flags));
+
+        synchronized (mSyncLock) {
+            try {
+                mSyncLock.wait();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        if (mHasReachEOS && mLastPts == info.presentationTimeUs && mDecoderCallback != null) {
+            mDecoderCallback.onDecodeDone();
+        }
+
+        Log.d(TAG, String.format("releaseOutputBuffer(), thread = %s, pts = %d, flag = %d", Thread.currentThread().getName(), info.presentationTimeUs, info.flags));
+//        });
     }
 
     public void release() {
@@ -450,5 +484,9 @@ public class ExtractDecoderWrapper {
 
     public interface OutputCallback {
         void onOutputData(ByteBuffer byteBuffer, MediaCodec.BufferInfo bufferInfo);
+    }
+
+    public interface DecoderCallback {
+        void onDecodeDone();
     }
 }
